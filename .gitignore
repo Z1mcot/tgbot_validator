@@ -1,0 +1,11 @@
+cmake-build-debug/
+build/
+
+.idea/
+
+*.o
+*.out
+*.so
+*.dll
+*.dylib
+*.a

@@ -1,0 +1,124 @@
+name: master-release
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: [ "v*.*.*" ] # Триггер на теги версий (например, v1.0.0)
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build_type: Release
+            c_compiler: cl
+            cpp_compiler: cl
+            artifact_name: windows-msvc
+          - os: ubuntu-latest
+            build_type: Release
+            c_compiler: gcc
+            cpp_compiler: g++
+            artifact_name: linux-gcc
+          - os: ubuntu-latest
+            build_type: Release
+            c_compiler: clang
+            cpp_compiler: clang++
+            artifact_name: linux-clang
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'latest'
+
+      - name: Set reusable strings
+        id: strings
+        shell: bash
+        run: |
+          echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+          echo "install-dir=${{ github.workspace }}/install_dist" >> "$GITHUB_OUTPUT"
+
+      - name: Configure CMake
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-dir }}
+          -S ${{ github.workspace }}
+
+      - name: Build
+        run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+      - name: Test
+        working-directory: ${{ steps.strings.outputs.build-output-dir }}
+        run: ctest -C ${{ matrix.build_type }} --output-on-failure
+
+      # ==========================================
+      # Шаги подготовки артефактов для релиза
+      # ==========================================
+      - name: Install Artifacts (Установка локально в инсталл-папку)
+        run: cmake --install ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+      # Архивируем папку установки, чтобы сохранить структуру include/ и lib/
+      - name: Archive Production Artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Compress-Archive -Path "${{ steps.strings.outputs.install-dir }}/*" -DestinationPath "${{ github.workspace }}/tgbot_validator_${{ matrix.artifact_name }}.zip"
+
+      - name: Archive Production Artifacts (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cd ${{ steps.strings.outputs.install-dir }}
+          tar -czf ${{ github.workspace }}/tgbot_validator_${{ matrix.artifact_name }}.tar.gz .
+
+      # Временно сохраняем архивы на серверах GitHub
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tgbot_validator_${{ matrix.artifact_name }}
+          path: |
+            ${{ github.workspace }}/*.zip
+            ${{ github.workspace }}/*.tar.gz
+          retention-days: 1
+
+  # ==========================================
+  # Новый Job: Создание GitHub Release
+  # ==========================================
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') # Запускать ТОЛЬКО когда мы пушим тег версии
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Дает право экшену заливать файлы в релизы
+
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: tgbot_validator_*
+          merge-multiple: true
+
+      - name: Display downloaded files
+        run: ls -R ./artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./artifacts/*.zip
+            ./artifacts/*.tar.gz
+          generate_release_notes: true # GitHub сам соберет красивый список мержей/коммитов
+          draft: false
+          prerelease: false
