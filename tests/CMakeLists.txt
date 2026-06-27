@@ -11,7 +11,7 @@ add_executable(tgbot_validator_tests
 target_link_libraries(tgbot_validator_tests
         PRIVATE
         tgbot_validator_core
-        gtest_main
+        GTest::gtest_main
 )
 
 # Автоматически регистрируем тесты в утилите ctest
