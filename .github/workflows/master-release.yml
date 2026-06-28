@@ -19,16 +19,19 @@ jobs:
             c_compiler: cl
             cpp_compiler: cl
             artifact_name: windows-msvc
+            vcpkgCommitId: a0400024711b283056538ac19ced80b91a83c24c
           - os: ubuntu-latest
             build_type: Release
             c_compiler: gcc
             cpp_compiler: g++
             artifact_name: linux-gcc
+            vcpkgCommitId: a0400024711b283056538ac19ced80b91a83c24c
           - os: ubuntu-latest
             build_type: Release
             c_compiler: clang
             cpp_compiler: clang++
             artifact_name: linux-clang
+            vcpkgCommitId: a0400024711b283056538ac19ced80b91a83c24c
 
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +39,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: 'latest'
+          vcpkgGitCommitId: '${{ matrix.vcpkgCommitId }}'
 
       - name: Set reusable strings
         id: strings
